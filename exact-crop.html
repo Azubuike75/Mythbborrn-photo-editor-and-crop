@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Exact Crop — resize &amp; compress images to an exact size</title>
+<style>
+  :root{
+    --ink:#1b1b18;
+    --paper:#f4f2ec;
+    --panel:#ffffff;
+    --line:#d8d5c9;
+    --line-strong:#b9b6a8;
+    --accent:#c1440e;
+    --accent-ink:#fff7f0;
+    --mono: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; font-family:var(--sans); background:var(--paper); color:var(--ink);
+    min-height:100vh; padding:32px 16px 80px;
+  }
+  .wrap{max-width:880px;margin:0 auto;}
+  header{margin-bottom:28px;}
+  .kicker{font-family:var(--mono); font-size:12px; letter-spacing:.12em; text-transform:uppercase; color:var(--accent); margin:0 0 6px;}
+  h1{font-size:28px; margin:0 0 8px; font-weight:600; letter-spacing:-.01em;}
+  .sub{color:#5c5a51; font-size:14px; margin:0; max-width:56ch; line-height:1.5;}
+
+  .panel{
+    background:var(--panel); border:1px solid var(--line); border-radius:2px;
+    padding:24px; margin-bottom:20px;
+  }
+  .drop{
+    border:1.5px dashed var(--line-strong); border-radius:2px; padding:40px 20px;
+    text-align:center; cursor:pointer; transition:border-color .15s, background .15s;
+  }
+  .drop:hover, .drop.drag{ border-color:var(--accent); background:#faf4ef; }
+  .drop input{display:none;}
+  .drop-icon{font-family:var(--mono); font-size:22px; color:var(--line-strong); margin-bottom:8px;}
+  .drop-text{font-size:14px; color:#5c5a51;}
+  .drop-text b{color:var(--ink);}
+
+  .controls{display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-top:20px;}
+  .field{display:flex; flex-direction:column; gap:6px;}
+  .field.full{grid-column:1 / -1;}
+  label{font-family:var(--mono); font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:#7a7768;}
+  .dims{display:flex; align-items:center; gap:8px;}
+  input[type=number], select{
+    font-family:var(--mono); font-size:15px; padding:8px 10px; border:1px solid var(--line-strong);
+    border-radius:2px; background:#fff; color:var(--ink); width:100%;
+  }
+  input[type=number]:focus, select:focus{ outline:2px solid var(--accent); outline-offset:1px; }
+  .x-sep{font-family:var(--mono); color:var(--line-strong); font-size:15px;}
+  .size-row{display:flex; gap:8px;}
+  .size-row input{flex:1;}
+  .size-row select{width:90px; flex-shrink:0;}
+
+  .fit-toggle{display:flex; gap:0; border:1px solid var(--line-strong); border-radius:2px; overflow:hidden;}
+  .fit-toggle button{
+    flex:1; padding:8px 10px; border:none; background:#fff; font-family:var(--mono); font-size:12px;
+    cursor:pointer; color:#5c5a51; border-right:1px solid var(--line-strong);
+  }
+  .fit-toggle button:last-child{border-right:none;}
+  .fit-toggle button.active{ background:var(--ink); color:#fff; }
+
+  .runbar{display:flex; align-items:center; gap:12px; margin-top:20px;}
+  button.primary{
+    font-family:var(--mono); font-size:13px; letter-spacing:.04em; text-transform:uppercase;
+    background:var(--ink); color:#fff; border:none; padding:12px 22px; border-radius:2px;
+    cursor:pointer;
+  }
+  button.primary:disabled{ background:#bdbaad; cursor:not-allowed; }
+  button.primary:hover:not(:disabled){ background:#000; }
+  .status{font-family:var(--mono); font-size:12px; color:#5c5a51;}
+
+  .result{display:none;}
+  .result.show{display:block;}
+  .preview-row{display:flex; gap:20px; align-items:flex-start; margin-top:4px; flex-wrap:wrap;}
+  .preview-box{flex:0 0 auto;}
+  .preview-box img{ max-width:280px; max-height:280px; border:1px solid var(--line); display:block; }
+  .stat-grid{display:grid; grid-template-columns:1fr 1fr; gap:10px 24px; font-size:13px; flex:1; min-width:220px;}
+  .stat-grid div{display:flex; justify-content:space-between; border-bottom:1px dotted var(--line); padding-bottom:6px;}
+  .stat-grid span:first-child{color:#7a7768; font-family:var(--mono); font-size:11px; text-transform:uppercase; letter-spacing:.06em; align-self:center;}
+  .stat-grid span:last-child{font-family:var(--mono); font-weight:600;}
+  .ok{color:#2f7d3c;}
+  .warn{color:var(--accent);}
+
+  a.download{
+    display:inline-block; margin-top:16px; font-family:var(--mono); font-size:13px;
+    text-transform:uppercase; letter-spacing:.04em; background:var(--accent); color:var(--accent-ink);
+    padding:12px 22px; border-radius:2px; text-decoration:none;
+  }
+  a.download:hover{ background:#a83a0c; }
+
+  .hint{font-size:12px; color:#8a8779; margin-top:14px; line-height:1.5;}
+  canvas{display:none;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <p class="kicker">exact crop</p>
+    <h1>Crop to an exact pixel size &amp; file size</h1>
+    <p class="sub">Upload a photo, set the width, height, and a target file size — it crops, resizes, and compresses to match. Everything runs in your browser; nothing is uploaded anywhere.</p>
+  </header>
+
+  <div class="panel">
+    <div class="drop" id="drop">
+      <input type="file" id="fileInput" accept="image/*">
+      <div class="drop-icon">[ + ]</div>
+      <div class="drop-text" id="dropText">Drop an image here, or <b>click to choose one</b></div>
+    </div>
+
+    <div class="controls">
+      <div class="field">
+        <label>Output dimensions (px)</label>
+        <div class="dims">
+          <input type="number" id="w" value="1080" min="1">
+          <span class="x-sep">×</span>
+          <input type="number" id="h" value="594" min="1">
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Target file size</label>
+        <div class="size-row">
+          <input type="number" id="targetSize" value="2" min="0.01" step="0.01">
+          <select id="sizeUnit">
+            <option value="MB" selected>MB</option>
+            <option value="KB">KB</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="field full">
+        <label>Crop mode</label>
+        <div class="fit-toggle">
+          <button type="button" class="active" data-fit="cover">Cover — fill exact size (crop excess)</button>
+          <button type="button" data-fit="contain">Contain — fit whole image (pad with white)</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="runbar">
+      <button class="primary" id="runBtn" disabled>Process image</button>
+      <span class="status" id="status"></span>
+    </div>
+  </div>
+
+  <div class="panel result" id="resultPanel">
+    <div class="preview-row">
+      <div class="preview-box">
+        <img id="previewImg" alt="Processed result preview">
+      </div>
+      <div class="stat-grid">
+        <div><span>Dimensions</span><span id="statDims">—</span></div>
+        <div><span>File size</span><span id="statSize">—</span></div>
+        <div><span>Target</span><span id="statTarget">—</span></div>
+        <div><span>Format</span><span id="statFormat">—</span></div>
+      </div>
+    </div>
+    <a class="download" id="downloadLink" download="cropped.jpg">Download image</a>
+    <p class="hint" id="hint"></p>
+  </div>
+</div>
+
+<canvas id="workCanvas"></canvas>
+
+<script>
+const drop = document.getElementById('drop');
+const fileInput = document.getElementById('fileInput');
+const dropText = document.getElementById('dropText');
+const runBtn = document.getElementById('runBtn');
+const statusEl = document.getElementById('status');
+const wInput = document.getElementById('w');
+const hInput = document.getElementById('h');
+const targetSizeInput = document.getElementById('targetSize');
+const sizeUnitSelect = document.getElementById('sizeUnit');
+const fitButtons = document.querySelectorAll('.fit-toggle button');
+const canvas = document.getElementById('workCanvas');
+const ctx = canvas.getContext('2d');
+const resultPanel = document.getElementById('resultPanel');
+const previewImg = document.getElementById('previewImg');
+const downloadLink = document.getElementById('downloadLink');
+const statDims = document.getElementById('statDims');
+const statSize = document.getElementById('statSize');
+const statTarget = document.getElementById('statTarget');
+const statFormat = document.getElementById('statFormat');
+const hint = document.getElementById('hint');
+
+let loadedImage = null;
+let loadedFileName = 'image';
+let fitMode = 'cover';
+
+fitButtons.forEach(btn => {
+  btn.addEventListener('click', () => {
+    fitButtons.forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    fitMode = btn.dataset.fit;
+  });
+});
+
+drop.addEventListener('click', () => fileInput.click());
+drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('drag'); });
+drop.addEventListener('dragleave', () => drop.classList.remove('drag'));
+drop.addEventListener('drop', e => {
+  e.preventDefault();
+  drop.classList.remove('drag');
+  if (e.dataTransfer.files && e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
+});
+fileInput.addEventListener('change', () => {
+  if (fileInput.files && fileInput.files[0]) handleFile(fileInput.files[0]);
+});
+
+function handleFile(file) {
+  if (!file.type.startsWith('image/')) {
+    statusEl.textContent = 'That file is not an image.';
+    return;
+  }
+  loadedFileName = file.name.replace(/\.[^.]+$/, '') || 'image';
+  const reader = new FileReader();
+  reader.onload = e => {
+    const img = new Image();
+    img.onload = () => {
+      loadedImage = img;
+      dropText.innerHTML = '<b>' + file.name + '</b> loaded — ' + img.naturalWidth + ' × ' + img.naturalHeight + 'px';
+      runBtn.disabled = false;
+      statusEl.textContent = '';
+    };
+    img.onerror = () => { statusEl.textContent = 'Could not read that image.'; };
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+
+function drawToCanvas(img, targetW, targetH, mode) {
+  canvas.width = targetW;
+  canvas.height = targetH;
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, targetW, targetH);
+
+  const iw = img.naturalWidth, ih = img.naturalHeight;
+  const targetRatio = targetW / targetH;
+  const srcRatio = iw / ih;
+
+  if (mode === 'cover') {
+    let sx, sy, sw, sh;
+    if (srcRatio > targetRatio) {
+      sh = ih;
+      sw = ih * targetRatio;
+      sx = (iw - sw) / 2;
+      sy = 0;
+    } else {
+      sw = iw;
+      sh = iw / targetRatio;
+      sx = 0;
+      sy = (ih - sh) / 2;
+    }
+    ctx.drawImage(img, sx, sy, sw, sh, 0, 0, targetW, targetH);
+  } else {
+    let dw, dh;
+    if (srcRatio > targetRatio) {
+      dw = targetW;
+      dh = targetW / srcRatio;
+    } else {
+      dh = targetH;
+      dw = targetH * srcRatio;
+    }
+    const dx = (targetW - dw) / 2;
+    const dy = (targetH - dh) / 2;
+    ctx.drawImage(img, 0, 0, iw, ih, dx, dy, dw, dh);
+  }
+}
+
+function canvasToBlob(quality) {
+  return new Promise(resolve => {
+    canvas.toBlob(blob => resolve(blob), 'image/jpeg', quality);
+  });
+}
+
+async function compressToTarget(targetBytes) {
+  let lo = 0.05, hi = 0.98;
+  let best = await canvasToBlob(hi);
+  if (best.size <= targetBytes) return { blob: best, quality: hi };
+
+  let bestUnder = null;
+  for (let i = 0; i < 8; i++) {
+    const mid = (lo + hi) / 2;
+    const blob = await canvasToBlob(mid);
+    if (blob.size <= targetBytes) {
+      bestUnder = { blob, quality: mid };
+      lo = mid;
+    } else {
+      hi = mid;
+    }
+  }
+  if (bestUnder) return bestUnder;
+  const lowest = await canvasToBlob(0.05);
+  return { blob: lowest, quality: 0.05 };
+}
+
+runBtn.addEventListener('click', async () => {
+  if (!loadedImage) return;
+  const targetW = Math.max(1, parseInt(wInput.value, 10) || 1);
+  const targetH = Math.max(1, parseInt(hInput.value, 10) || 1);
+  const rawSize = parseFloat(targetSizeInput.value) || 0;
+  const unit = sizeUnitSelect.value;
+  const targetBytes = Math.round(rawSize * (unit === 'MB' ? 1024 * 1024 : 1024));
+
+  runBtn.disabled = true;
+  statusEl.textContent = 'Processing…';
+
+  await new Promise(r => setTimeout(r, 10));
+  drawToCanvas(loadedImage, targetW, targetH, fitMode);
+
+  const { blob, quality } = await compressToTarget(targetBytes);
+  const url = URL.createObjectURL(blob);
+
+  previewImg.src = url;
+  downloadLink.href = url;
+  downloadLink.download = loadedFileName + '_' + targetW + 'x' + targetH + '.jpg';
+
+  const actualKB = blob.size / 1024;
+  const actualLabel = actualKB > 1024 ? (actualKB / 1024).toFixed(2) + ' MB' : Math.round(actualKB) + ' KB';
+  const targetLabel = unit === 'MB' ? rawSize + ' MB' : rawSize + ' KB';
+
+  statDims.textContent = targetW + ' × ' + targetH + ' px';
+  statSize.textContent = actualLabel;
+  statTarget.textContent = targetLabel + ' max';
+  statFormat.textContent = 'JPEG · quality ' + Math.round(quality * 100) + '%';
+
+  statSize.className = blob.size <= targetBytes ? 'ok' : 'warn';
+
+  if (blob.size <= targetBytes) {
+    hint.textContent = 'Within your target size. Quality was reduced only as much as needed to fit.';
+  } else {
+    hint.textContent = 'This is the smallest this image can get at ' + targetW + '×' + targetH + ' without becoming unusable — it could not reach your target even at the lowest quality. Try a smaller pixel size for a smaller file.';
+  }
+
+  resultPanel.classList.add('show');
+  statusEl.textContent = 'Done.';
+  runBtn.disabled = false;
+});
+</script>
+</body>
+</html>
