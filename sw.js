@@ -1,5 +1,15 @@
-const CACHE = 'exact-crop-v3';
-const ASSETS = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png'];
+const CACHE = 'exact-crop-v4';
+const ASSETS = [
+  './',
+  './index.html',
+  './about.html',
+  './terms.html',
+  './privacy.html',
+  './contact.html',
+  './manifest.json',
+  './icon-192.png',
+  './icon-512.png'
+];
 
 self.addEventListener('install', event => {
   event.waitUntil(
@@ -27,8 +37,10 @@ self.addEventListener('fetch', event => {
     caches.match(event.request).then(cached => {
       if (cached) return cached;
       return fetch(event.request).then(res => {
-        const copy = res.clone();
-        caches.open(CACHE).then(cache => cache.put(event.request, copy));
+        if (res.ok) {
+          const copy = res.clone();
+          caches.open(CACHE).then(cache => cache.put(event.request, copy));
+        }
         return res;
       }).catch(() => cached);
     })
